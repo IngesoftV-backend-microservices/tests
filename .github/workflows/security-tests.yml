@@ -1,0 +1,255 @@
+name: Security Tests Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: 'dev'
+      target_service:
+        description: 'Service to scan'
+        required: false
+        type: choice
+        options:
+          - api-gateway
+          - user-service
+          - product-service
+          - order-service
+          - payment-service
+          - shipping-service
+          - favourite-service
+          - proxy-client
+          - all
+        default: 'api-gateway'
+      scan_type:
+        description: 'Scan type'
+        required: false
+        type: choice
+        options:
+          - both
+          - spider
+          - active
+        default: 'both'
+
+permissions:
+  contents: read
+  issues: write
+  security-events: write
+
+jobs:
+  security-tests:
+    name: Run Security Tests
+    runs-on: self-hosted
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout tests repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Get LoadBalancer IP from AKS
+        run: |
+          ENV="${{ github.event.inputs.environment || 'dev' }}"
+
+          if [ "$ENV" == "dev" ]; then
+            NAMESPACE="ecommerce-dev"
+          else
+            NAMESPACE="ecommerce-prod"
+          fi
+
+          # Get LoadBalancer IP (assumes kubectl context is already configured)
+          API_GATEWAY_IP=$(kubectl get svc api-gateway -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+
+          if [ -z "$API_GATEWAY_IP" ]; then
+            echo "⚠️  Could not get API Gateway IP from cluster, using localhost as fallback"
+            API_GATEWAY_IP="localhost"
+          fi
+
+          echo "✅ API Gateway IP: $API_GATEWAY_IP"
+          echo "BASE_HOST=$API_GATEWAY_IP" >> $GITHUB_ENV
+
+      - name: Set environment variables
+        run: |
+          echo "TARGET_SERVICE=${{ github.event.inputs.target_service || 'api-gateway' }}" >> $GITHUB_ENV
+          echo "SCAN_TYPE=${{ github.event.inputs.scan_type || 'both' }}" >> $GITHUB_ENV
+          echo "ZAP_PORT=8090" >> $GITHUB_ENV
+
+      - name: Start OWASP ZAP
+        run: |
+          cd security
+
+          # Start ZAP in daemon mode
+          docker run -d \
+            --name zap-${{ github.run_id }} \
+            -p 8090:8090 \
+            -v $(pwd):/zap/wrk/:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -daemon -host 0.0.0.0 -port 8090 -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true -config api.disablekey=true
+
+          # Wait for ZAP to start
+          echo "Waiting for ZAP to start..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8090 > /dev/null 2>&1; then
+              echo "✅ ZAP is ready"
+              break
+            fi
+            echo "Attempt $i/30: ZAP not ready yet, waiting 5s..."
+            sleep 5
+          done
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for services to be ready..."
+
+          if [ "$TARGET_SERVICE" == "api-gateway" ] || [ "$TARGET_SERVICE" == "all" ]; then
+            for i in {1..30}; do
+              if curl -f -s "http://${BASE_HOST}:80/actuator/health" > /dev/null 2>&1; then
+                echo "✅ API Gateway is ready"
+                break
+              fi
+              echo "Attempt $i/30: API Gateway not ready yet, waiting 10s..."
+              sleep 10
+            done
+          fi
+
+      - name: Run security scan
+        run: |
+          cd security
+          bash run_security_tests.sh
+        continue-on-error: true
+        timeout-minutes: 60
+
+      - name: Stop OWASP ZAP
+        if: always()
+        run: |
+          docker stop zap-${{ github.run_id }} || true
+          docker rm zap-${{ github.run_id }} || true
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-test-reports-${{ github.event.inputs.environment || 'dev' }}-${{ github.run_number }}
+          path: reports/security/
+          retention-days: 30
+
+      - name: Parse security results
+        if: always()
+        id: parse-results
+        run: |
+          if [ -f "reports/security/security_scan_alerts.json" ]; then
+            HIGH_COUNT=$(jq '[.[] | select(.risk == "High")] | length' reports/security/security_scan_alerts.json || echo "0")
+            CRITICAL_COUNT=$(jq '[.[] | select(.risk == "Critical")] | length' reports/security/security_scan_alerts.json || echo "0")
+            MEDIUM_COUNT=$(jq '[.[] | select(.risk == "Medium")] | length' reports/security/security_scan_alerts.json || echo "0")
+            LOW_COUNT=$(jq '[.[] | select(.risk == "Low")] | length' reports/security/security_scan_alerts.json || echo "0")
+
+            echo "critical=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+            echo "high=$HIGH_COUNT" >> $GITHUB_OUTPUT
+            echo "medium=$MEDIUM_COUNT" >> $GITHUB_OUTPUT
+            echo "low=$LOW_COUNT" >> $GITHUB_OUTPUT
+
+            echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Environment:** ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Target Service:** ${{ github.event.inputs.target_service || 'api-gateway' }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Scan Type:** ${{ github.event.inputs.scan_type || 'both' }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Critical | $CRITICAL_COUNT |" >> $GITHUB_STEP_SUMMARY
+            echo "| High | $HIGH_COUNT |" >> $GITHUB_STEP_SUMMARY
+            echo "| Medium | $MEDIUM_COUNT |" >> $GITHUB_STEP_SUMMARY
+            echo "| Low | $LOW_COUNT |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "See artifacts for detailed HTML reports." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No security report found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for critical/high vulnerabilities
+        if: always()
+        run: |
+          CRITICAL="${{ steps.parse-results.outputs.critical || 0 }}"
+          HIGH="${{ steps.parse-results.outputs.high || 0 }}"
+
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "❌ Found $CRITICAL critical and $HIGH high severity vulnerabilities"
+            exit 1
+          else
+            echo "✅ No critical or high severity vulnerabilities found"
+          fi
+
+      - name: Notify on failure
+        if: failure() && vars.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ Security Tests Failed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "❌ Security Tests Failed"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\n${{ github.event.inputs.environment || 'dev' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Target Service:*\n${{ github.event.inputs.target_service || 'api-gateway' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Critical:*\n${{ steps.parse-results.outputs.critical || 0 }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*High:*\n${{ steps.parse-results.outputs.high || 0 }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ vars.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ Security scan completed with no critical/high vulnerabilities"

@@ -2,6 +2,21 @@
 
 Este directorio contiene las pruebas end-to-end (E2E) y de integración para el proyecto de microservicios E-Commerce.
 
+## 🚀 Ejecución Automatizada con GitHub Actions
+
+Los tests se ejecutan automáticamente usando **self-hosted runners**. Cada desarrollador ejecuta los workflows en su propia PC, sin necesidad de configurar secretos en GitHub.
+
+📖 **Ver [RUNNER-SETUP.md](RUNNER-SETUP.md) para configurar el self-hosted runner (5 minutos).**
+
+### Workflows Disponibles
+
+- ✅ **Integration Tests:** Manual + Nightly (1 AM UTC)
+- ✅ **E2E Tests:** Manual + Nightly (2 AM UTC)
+- ✅ **Performance Tests:** Manual + Weekly (Domingos 3 AM UTC)
+- ✅ **Security Tests:** Solo manual
+
+---
+
 ## Estructura del Proyecto
 
 ```

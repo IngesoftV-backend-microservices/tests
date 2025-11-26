@@ -1,0 +1,181 @@
+name: Performance Tests Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: 'dev'
+      user_levels:
+        description: 'User levels (space-separated, e.g., "10 50 100")'
+        required: false
+        type: string
+        default: '10 50 100'
+      duration:
+        description: 'Test duration in seconds'
+        required: false
+        type: number
+        default: 60
+  schedule:
+    # Run weekly on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  performance-tests:
+    name: Run Performance Tests
+    runs-on: self-hosted
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout tests repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Get LoadBalancer IP from AKS
+        run: |
+          ENV="${{ github.event.inputs.environment || 'dev' }}"
+
+          if [ "$ENV" == "dev" ]; then
+            NAMESPACE="ecommerce-dev"
+          else
+            NAMESPACE="ecommerce-prod"
+          fi
+
+          # Get LoadBalancer IP (assumes kubectl context is already configured)
+          API_GATEWAY_IP=$(kubectl get svc api-gateway -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+
+          if [ -z "$API_GATEWAY_IP" ]; then
+            echo "⚠️  Could not get API Gateway IP from cluster, using localhost as fallback"
+            API_GATEWAY_IP="localhost"
+          fi
+
+          echo "✅ API Gateway IP: $API_GATEWAY_IP"
+          HOST="http://$API_GATEWAY_IP:8080"
+          echo "HOST=$HOST" >> $GITHUB_ENV
+
+      - name: Set environment variables
+        run: |
+          echo "USER_LEVELS=${{ github.event.inputs.user_levels || '10 50 100' }}" >> $GITHUB_ENV
+          echo "DURATION=${{ github.event.inputs.duration || 60 }}" >> $GITHUB_ENV
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for API Gateway to be ready..."
+          for i in {1..30}; do
+            if curl -f -s "${HOST}/actuator/health" > /dev/null 2>&1; then
+              echo "✅ API Gateway is ready"
+              break
+            fi
+            echo "Attempt $i/30: API Gateway not ready yet, waiting 10s..."
+            sleep 10
+          done
+
+      - name: Run performance tests
+        run: |
+          cd performance
+          bash run_load_tests.sh
+        continue-on-error: false
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-test-reports-${{ github.event.inputs.environment || 'dev' }}-${{ github.run_number }}
+          path: reports/load_tests/
+          retention-days: 30
+
+      - name: Parse performance results
+        if: always()
+        run: |
+          echo "## Performance Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**User Levels:** ${{ github.event.inputs.user_levels || '10 50 100' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Duration:** ${{ github.event.inputs.duration || 60 }}s" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See artifacts for detailed HTML reports." >> $GITHUB_STEP_SUMMARY
+
+      - name: Check test results
+        if: failure()
+        run: |
+          echo "❌ Performance tests failed"
+          exit 1
+
+      - name: Notify on failure
+        if: failure() && vars.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ Performance Tests Failed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "❌ Performance Tests Failed"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\n${{ github.event.inputs.environment || 'dev' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Triggered by:*\n${{ github.actor }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*User Levels:*\n${{ github.event.inputs.user_levels || '10 50 100' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Duration:*\n${{ github.event.inputs.duration || 60 }}s"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ vars.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ Performance tests completed successfully"

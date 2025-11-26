@@ -1,0 +1,157 @@
+name: Integration Tests Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: 'dev'
+  schedule:
+    # Run nightly at 1 AM UTC
+    - cron: '0 1 * * *'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  integration-tests:
+    name: Run Integration Tests
+    runs-on: self-hosted
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout tests repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Get LoadBalancer IP from AKS
+        run: |
+          ENV="${{ github.event.inputs.environment || 'dev' }}"
+
+          if [ "$ENV" == "dev" ]; then
+            NAMESPACE="ecommerce-dev"
+          else
+            NAMESPACE="ecommerce-prod"
+          fi
+
+          # Get LoadBalancer IP (assumes kubectl context is already configured)
+          API_GATEWAY_IP=$(kubectl get svc api-gateway -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+
+          if [ -z "$API_GATEWAY_IP" ]; then
+            echo "⚠️  Could not get API Gateway IP from cluster, using localhost as fallback"
+            API_GATEWAY_IP="localhost"
+          fi
+
+          echo "✅ API Gateway IP: $API_GATEWAY_IP"
+          echo "BASE_HOST=$API_GATEWAY_IP" >> $GITHUB_ENV
+
+      - name: Set environment variables
+        run: |
+          echo "API_GATEWAY_PORT=8080" >> $GITHUB_ENV
+          echo "USER_SERVICE_PORT=8700" >> $GITHUB_ENV
+          echo "PRODUCT_SERVICE_PORT=8500" >> $GITHUB_ENV
+          echo "ORDER_SERVICE_PORT=8300" >> $GITHUB_ENV
+          echo "PAYMENT_SERVICE_PORT=8400" >> $GITHUB_ENV
+          echo "SHIPPING_SERVICE_PORT=8600" >> $GITHUB_ENV
+          echo "FAVOURITE_SERVICE_PORT=8800" >> $GITHUB_ENV
+          echo "PROXY_CLIENT_PORT=8900" >> $GITHUB_ENV
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for API Gateway to be ready..."
+          for i in {1..30}; do
+            if curl -f -s "http://${BASE_HOST}:${API_GATEWAY_PORT}/actuator/health" > /dev/null 2>&1; then
+              echo "✅ API Gateway is ready"
+              break
+            fi
+            echo "Attempt $i/30: API Gateway not ready yet, waiting 10s..."
+            sleep 10
+          done
+
+      - name: Run integration tests
+        run: |
+          cd integration
+          bash run-tests.sh --html --verbose
+        continue-on-error: false
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-report-${{ github.event.inputs.environment || 'dev' }}-${{ github.run_number }}
+          path: reports/integration/
+          retention-days: 30
+
+      - name: Check test results
+        if: failure()
+        run: |
+          echo "❌ Integration tests failed"
+          exit 1
+
+      - name: Notify on failure
+        if: failure() && vars.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ Integration Tests Failed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "❌ Integration Tests Failed"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\n${{ github.event.inputs.environment || 'dev' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Triggered by:*\n${{ github.actor }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ vars.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ All integration tests passed successfully"
