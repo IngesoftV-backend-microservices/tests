@@ -32,13 +32,20 @@ def get_base_url(service_name: Optional[str] = None) -> str:
     service_name = service_name or _current_service
     if not service_name:
         raise ValueError("No service specified. Call set_current_service() first.")
-    
+
     if "-" not in service_name:
         service_name = f"{service_name}-service"
-    
-    # Mapeo de nombres de servicio a URLs
+
     # BASE_HOST can be set dynamically (e.g., LoadBalancer IP in CI/CD)
     base_host = os.getenv("BASE_HOST", "localhost")
+
+    # In cloud environments (BASE_HOST != localhost), all services are accessed through API Gateway
+    # This is the recommended practice for microservices architectures
+    if base_host != "localhost":
+        # All integration tests go through API Gateway in cloud environments
+        return f"http://{base_host}:8080"
+
+    # Local development: direct service access
     service_urls = {
         "user-service": f"http://{base_host}:8700",
         "product-service": f"http://{base_host}:8500",
@@ -51,7 +58,7 @@ def get_base_url(service_name: Optional[str] = None) -> str:
         "service-discovery": f"http://{base_host}:8761",
         "proxy-client": f"http://{base_host}:8900",
     }
-    
+
     return service_urls.get(service_name, "http://localhost:8080")
 
 
