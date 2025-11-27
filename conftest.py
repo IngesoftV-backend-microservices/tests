@@ -18,14 +18,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Service URLs from environment
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8080")
-PROXY_URL = os.getenv("PROXY_URL", "http://localhost:8900")
-USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://localhost:8700")
-PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://localhost:8500")
-ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://localhost:8300")
-PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://localhost:8400")
-SHIPPING_SERVICE_URL = os.getenv("SHIPPING_SERVICE_URL", "http://localhost:8600")
-FAVOURITE_SERVICE_URL = os.getenv("FAVOURITE_SERVICE_URL", "http://localhost:8800")
+# BASE_HOST can be set dynamically (e.g., LoadBalancer IP in CI/CD or localhost for local tests)
+BASE_HOST = os.getenv("BASE_HOST", "localhost")
+BASE_URL = os.getenv("BASE_URL", f"http://{BASE_HOST}:8080")
+PROXY_URL = os.getenv("PROXY_URL", f"http://{BASE_HOST}:8900")
+USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", f"http://{BASE_HOST}:8700")
+PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", f"http://{BASE_HOST}:8500")
+ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", f"http://{BASE_HOST}:8300")
+PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", f"http://{BASE_HOST}:8400")
+SHIPPING_SERVICE_URL = os.getenv("SHIPPING_SERVICE_URL", f"http://{BASE_HOST}:8600")
+FAVOURITE_SERVICE_URL = os.getenv("FAVOURITE_SERVICE_URL", f"http://{BASE_HOST}:8800")
 
 # Test configuration
 TEST_TIMEOUT = int(os.getenv("TEST_TIMEOUT", "30"))

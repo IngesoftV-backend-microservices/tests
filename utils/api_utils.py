@@ -1,6 +1,7 @@
 """
 Utilidades para hacer peticiones HTTP en los tests.
 """
+import os
 import requests
 from typing import Dict, Any, Optional
 from utils.helpers import build_integration_url, SERVICE_CONTEXT_PATHS
@@ -36,17 +37,19 @@ def get_base_url(service_name: Optional[str] = None) -> str:
         service_name = f"{service_name}-service"
     
     # Mapeo de nombres de servicio a URLs
+    # BASE_HOST can be set dynamically (e.g., LoadBalancer IP in CI/CD)
+    base_host = os.getenv("BASE_HOST", "localhost")
     service_urls = {
-        "user-service": "http://localhost:8700",
-        "product-service": "http://localhost:8500",
-        "order-service": "http://localhost:8300",
-        "payment-service": "http://localhost:8400",
-        "shipping-service": "http://localhost:8600",
-        "favourite-service": "http://localhost:8800",
-        "api-gateway": "http://localhost:8080",
-        "cloud-config": "http://localhost:9296",
-        "service-discovery": "http://localhost:8761",
-        "proxy-client": "http://localhost:8900",
+        "user-service": f"http://{base_host}:8700",
+        "product-service": f"http://{base_host}:8500",
+        "order-service": f"http://{base_host}:8300",
+        "payment-service": f"http://{base_host}:8400",
+        "shipping-service": f"http://{base_host}:8600",
+        "favourite-service": f"http://{base_host}:8800",
+        "api-gateway": f"http://{base_host}:8080",
+        "cloud-config": f"http://{base_host}:9296",
+        "service-discovery": f"http://{base_host}:8761",
+        "proxy-client": f"http://{base_host}:8900",
     }
     
     return service_urls.get(service_name, "http://localhost:8080")
@@ -129,7 +132,9 @@ def make_e2e_request(
         Response object de requests
     """
     # API Gateway está en el puerto 8080
-    base_url = "http://localhost:8080"
+    # BASE_HOST can be set dynamically (e.g., LoadBalancer IP in CI/CD)
+    base_host = os.getenv("BASE_HOST", "localhost")
+    base_url = f"http://{base_host}:8080"
     
     # Si el endpoint ya tiene un prefijo (ej: "/app/"), usarlo directamente
     # Si no, construir endpoint con el prefijo del servicio
