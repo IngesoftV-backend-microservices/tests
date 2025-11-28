@@ -42,36 +42,43 @@ def jwt_token() -> Optional[str]:
     Returns None if authentication fails (e.g., due to known proxy-client bug).
     Tests should skip if token is None.
     """
-    # Proxy client has context-path /app
-    auth_url = f"{PROXY_URL}/app/api/authenticate"
+    # In cloud environments (BASE_HOST != localhost), route through API Gateway
+    # In local development, use proxy-client directly
+    if BASE_HOST != "localhost":
+        # Cloud environment: use API Gateway
+        auth_url = f"{BASE_URL}/proxy-client/app/api/authenticate"
+    else:
+        # Local environment: use proxy-client directly
+        auth_url = f"{PROXY_URL}/app/api/authenticate"
+
     payload = {
         "username": DEFAULT_USERNAME,
         "password": DEFAULT_PASSWORD
     }
-    
+
     try:
         response = requests.post(
-            auth_url, 
-            json=payload, 
+            auth_url,
+            json=payload,
             timeout=TEST_TIMEOUT,
             headers={"Content-Type": "application/json"}
         )
-        
+
         if response.status_code == 200:
             data = response.json()
             token = data.get("jwtToken")
             if token:
                 return token
-        
+
         # Si hay error, retornar None (los tests se saltarán)
         print(f"\n⚠️  WARNING: Autenticación falló (Status {response.status_code})")
-        print(f"   Bug conocido: proxy-client llama a http://USER-SERVICE/api/credentials")
-        print(f"   pero debería llamar a http://USER-SERVICE/user-service/api/credentials")
+        print(f"   Auth URL: {auth_url}")
         print(f"   Los tests que requieren autenticación se saltarán")
         return None
-        
+
     except requests.exceptions.RequestException as e:
         print(f"\n⚠️  WARNING: Error al conectar con autenticación: {e}")
+        print(f"   Auth URL: {auth_url}")
         print(f"   Los tests que requieren autenticación se saltarán")
         return None
 
