@@ -41,15 +41,23 @@ def jwt_token() -> Optional[str]:
     Authenticate and get JWT token for tests.
     Returns None if authentication fails (e.g., due to known proxy-client bug).
     Tests should skip if token is None.
+    
+    Priority order for authentication URL:
+    1. AUTH_URL environment variable (explicit, used in CI/CD)
+    2. Cloud environment detection (BASE_HOST != localhost)
+    3. Local environment (localhost)
     """
-    # In cloud environments (BASE_HOST != localhost), route through API Gateway
-    # In local development, use proxy-client directly
-    if BASE_HOST != "localhost":
-        # Cloud environment: use API Gateway
-        auth_url = f"{BASE_URL}/proxy-client/app/api/authenticate"
-    else:
-        # Local environment: use proxy-client directly
-        auth_url = f"{PROXY_URL}/app/api/authenticate"
+    # Priority 1: Use explicit AUTH_URL if provided (CI/CD environments)
+    auth_url = os.getenv("AUTH_URL")
+    
+    if not auth_url:
+        # Priority 2 & 3: Auto-detect based on BASE_HOST
+        if BASE_HOST != "localhost":
+            # Cloud environment: use API Gateway
+            auth_url = f"{BASE_URL}/proxy-client/app/api/authenticate"
+        else:
+            # Local environment: use proxy-client directly
+            auth_url = f"{PROXY_URL}/app/api/authenticate"
 
     payload = {
         "username": DEFAULT_USERNAME,
@@ -68,6 +76,8 @@ def jwt_token() -> Optional[str]:
             data = response.json()
             token = data.get("jwtToken")
             if token:
+                print(f"\n✅ Authentication successful")
+                print(f"   Auth URL: {auth_url}")
                 return token
 
         # Si hay error, retornar None (los tests se saltarán)
