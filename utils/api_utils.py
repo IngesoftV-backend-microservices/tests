@@ -66,28 +66,30 @@ def make_request(
     method: str,
     endpoint: str,
     data: Optional[Dict[str, Any]] = None,
-    service_name: Optional[str] = None
+    service_name: Optional[str] = None,
+    timeout: int = 30
 ) -> requests.Response:
     """
     Hacer una petición HTTP simplificada.
-    
+
     Args:
         method: Método HTTP (GET, POST, PUT, DELETE, PATCH)
         endpoint: Endpoint relativo (ej: "/api/users")
         data: Datos para enviar en el body (opcional)
         service_name: Nombre del servicio (opcional, usa el actual si no se especifica)
-    
+        timeout: Timeout en segundos (default: 30)
+
     Returns:
         Response object de requests
     """
     service_name = service_name or _current_service
     if not service_name:
         raise ValueError("No service specified. Call set_current_service() first.")
-    
+
     base_url = get_base_url(service_name)
-    
+
     normalized_name = _normalize_service_name(service_name)
-    
+
     # Construir URL completa con context path
     if normalized_name in SERVICE_CONTEXT_PATHS:
         # build_integration_url devuelve solo el path (ej: "/user-service/api/users")
@@ -96,26 +98,31 @@ def make_request(
     else:
         # Para servicios sin context path (gateway, config, etc.)
         full_url = f"{base_url}{endpoint}"
-    
+
     # Headers por defecto
     headers = {"Content-Type": "application/json"}
-    
-    # Hacer la petición según el método
+
+    # Hacer la petición según el método con timeout
     method = method.upper()
-    if method == "GET":
-        response = requests.get(full_url, headers=headers)
-    elif method == "POST":
-        response = requests.post(full_url, headers=headers, json=data)
-    elif method == "PUT":
-        response = requests.put(full_url, headers=headers, json=data)
-    elif method == "DELETE":
-        response = requests.delete(full_url, headers=headers)
-    elif method == "PATCH":
-        response = requests.patch(full_url, headers=headers, json=data)
-    else:
-        raise ValueError(f"Unsupported HTTP method: {method}")
-    
-    return response
+    try:
+        if method == "GET":
+            response = requests.get(full_url, headers=headers, timeout=timeout)
+        elif method == "POST":
+            response = requests.post(full_url, headers=headers, json=data, timeout=timeout)
+        elif method == "PUT":
+            response = requests.put(full_url, headers=headers, json=data, timeout=timeout)
+        elif method == "DELETE":
+            response = requests.delete(full_url, headers=headers, timeout=timeout)
+        elif method == "PATCH":
+            response = requests.patch(full_url, headers=headers, json=data, timeout=timeout)
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
+
+        return response
+    except requests.exceptions.Timeout:
+        raise AssertionError(f"Request timeout after {timeout}s: {method} {full_url}")
+    except requests.exceptions.ConnectionError as e:
+        raise AssertionError(f"Connection error to {full_url}: {str(e)}")
 
 
 def make_e2e_request(
@@ -123,18 +130,20 @@ def make_e2e_request(
     endpoint: str,
     data: Optional[Dict[str, Any]] = None,
     service_name: Optional[str] = None,
-    jwt_token: Optional[str] = None
+    jwt_token: Optional[str] = None,
+    timeout: int = 60
 ) -> requests.Response:
     """
     Hacer una petición HTTP a través del API Gateway (para tests E2E).
-    
+
     Args:
         method: Método HTTP (GET, POST, PUT, DELETE, PATCH)
         endpoint: Endpoint relativo (ej: "/api/users" o "/app/api/authenticate")
         data: Datos para enviar en el body (opcional)
         service_name: Nombre del servicio (ej: "user", "product", "order")
         jwt_token: Token JWT para autenticación (opcional)
-    
+        timeout: Timeout en segundos (default: 60)
+
     Returns:
         Response object de requests
     """
@@ -142,7 +151,7 @@ def make_e2e_request(
     # BASE_HOST can be set dynamically (e.g., LoadBalancer IP in CI/CD)
     base_host = os.getenv("BASE_HOST", "localhost")
     base_url = f"http://{base_host}:8080"
-    
+
     # Si el endpoint ya tiene un prefijo (ej: "/app/"), usarlo directamente
     # Si no, construir endpoint con el prefijo del servicio
     if service_name and not endpoint.startswith("/app/"):
@@ -150,28 +159,33 @@ def make_e2e_request(
             service_name = service_name[:-8]
         # El API Gateway enruta /service-name/** a los servicios
         endpoint = f"/{service_name}-service{endpoint}"
-    
+
     full_url = f"{base_url}{endpoint}"
-    
+
     # Headers
     headers = {"Content-Type": "application/json"}
     if jwt_token:
         headers["Authorization"] = f"Bearer {jwt_token}"
-    
-    # Hacer la petición según el método
+
+    # Hacer la petición según el método con timeout
     method = method.upper()
-    if method == "GET":
-        response = requests.get(full_url, headers=headers)
-    elif method == "POST":
-        response = requests.post(full_url, headers=headers, json=data)
-    elif method == "PUT":
-        response = requests.put(full_url, headers=headers, json=data)
-    elif method == "DELETE":
-        response = requests.delete(full_url, headers=headers)
-    elif method == "PATCH":
-        response = requests.patch(full_url, headers=headers, json=data)
-    else:
-        raise ValueError(f"Unsupported HTTP method: {method}")
-    
-    return response
+    try:
+        if method == "GET":
+            response = requests.get(full_url, headers=headers, timeout=timeout)
+        elif method == "POST":
+            response = requests.post(full_url, headers=headers, json=data, timeout=timeout)
+        elif method == "PUT":
+            response = requests.put(full_url, headers=headers, json=data, timeout=timeout)
+        elif method == "DELETE":
+            response = requests.delete(full_url, headers=headers, timeout=timeout)
+        elif method == "PATCH":
+            response = requests.patch(full_url, headers=headers, json=data, timeout=timeout)
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
+
+        return response
+    except requests.exceptions.Timeout:
+        raise AssertionError(f"E2E Request timeout after {timeout}s: {method} {full_url}")
+    except requests.exceptions.ConnectionError as e:
+        raise AssertionError(f"E2E Connection error to {full_url}: {str(e)}")
 

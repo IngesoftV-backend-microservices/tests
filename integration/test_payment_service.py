@@ -63,7 +63,9 @@ class TestPaymentService:
         created_order = response.json()
         order_id = created_order.get("orderId")
 
-        make_request("PATCH", f"/api/orders/{order_id}/status")
+        # Change order status to CONFIRMED (required for payment processing)
+        patch_response = make_request("PATCH", f"/api/orders/{order_id}/status")
+        assert patch_response.status_code in [200, 204], f"Error al cambiar estado de orden: {patch_response.text}"
 
         yield {"id": order_id, "data": created_order, "cart": cart}
 
@@ -96,12 +98,13 @@ class TestPaymentService:
         set_current_service("payment-service")
         order = create_test_order
         payment_data = generate_payment_data(order["id"])
-        
+
         response = make_request("POST", "/api/payments", data=payment_data)
 
-        assert response.status_code in [200, 201]
+        assert response.status_code in [200, 201], f"Error al crear payment: {response.text}"
         result = response.json()
         assert result["paymentId"] is not None
+        assert result["order"]["orderId"] == order["id"]
 
         try:
             make_request("DELETE", f'/api/payments/{result["paymentId"]}')
@@ -148,10 +151,10 @@ class TestPaymentService:
         order = create_test_order
         payment_data = generate_payment_data(order["id"])
         create_response = make_request("POST", "/api/payments", data=payment_data)
-        assert create_response.status_code in [200, 201]
+        assert create_response.status_code in [200, 201], f"Error al crear payment para delete: {create_response.text}"
         payment_id = create_response.json()["paymentId"]
 
         delete_response = make_request("DELETE", f"/api/payments/{payment_id}")
-        assert delete_response.status_code in [200, 204, 400]
+        assert delete_response.status_code in [200, 204, 400], f"Error al eliminar payment: {delete_response.text}"
 
 
