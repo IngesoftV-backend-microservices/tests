@@ -13,23 +13,15 @@ fake = Faker()
 def generate_user_data(user_id: Optional[int] = None) -> Dict[str, Any]:
     """Generate fake user data with unique IDs and username"""
     import time
-    if user_id is None:
-        # Usar timestamp (últimos dígitos) + random para garantizar unicidad
-        # Mantener dentro del rango de INT (máx 2,147,483,647)
-        # Usamos los últimos 5 dígitos del timestamp + random de 4 dígitos
-        timestamp_part = int(time.time()) % 100000  # Últimos 5 dígitos (0-99999)
-        random_part = random.randint(1000, 9999)  # 4 dígitos aleatorios
-        user_id = timestamp_part * 10000 + random_part  # Máximo: 99999 * 10000 + 9999 = 999,999,999 (seguro)
-    
+
     # Username único usando timestamp
     unique_suffix = int(time.time() * 1000) % 1000000000 + random.randint(100, 999)
     username = f"user_{unique_suffix}"
-    
+
     # Email único
     email = f"user_{unique_suffix}@{fake.domain_name()}"
-    
-    return {
-        "userId": user_id,
+
+    user_data = {
         "firstName": fake.first_name(),
         "lastName": fake.last_name(),
         "imageUrl": fake.image_url(),
@@ -51,6 +43,12 @@ def generate_user_data(user_id: Optional[int] = None) -> Dict[str, Any]:
             "isCredentialsNonExpired": True
         }
     }
+
+    # Only include userId if explicitly provided (for updates, not creation)
+    if user_id is not None:
+        user_data["userId"] = user_id
+
+    return user_data
 
 
 def generate_category_data() -> Dict[str, Any]:
