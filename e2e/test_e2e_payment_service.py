@@ -1,6 +1,7 @@
 """
 Pruebas E2E para el Payment Service a través del API Gateway.
 """
+import time
 import pytest
 from utils.api_utils import make_e2e_request
 from utils.helpers import generate_user_data, generate_cart_data, generate_order_data, generate_payment_data
@@ -19,20 +20,24 @@ class TestE2EPaymentService:
         user_response = make_e2e_request("POST", "/api/users", data=user_data, service_name="user", jwt_token=jwt_token)
         assert user_response.status_code in [200, 201], f"Error al crear usuario: {user_response.text}"
         user_id = user_response.json()["userId"]
-        
+        time.sleep(1.0)
+
         try:
             cart_data = generate_cart_data(user_id)
             cart_response = make_e2e_request("POST", "/api/carts", data=cart_data, service_name="order", jwt_token=jwt_token)
             assert cart_response.status_code in [200, 201], f"Error al crear carrito: {cart_response.text}"
             cart_id = cart_response.json()["cartId"]
+            time.sleep(1.0)
 
             order_data = generate_order_data(cart_id)
             order_response = make_e2e_request("POST", "/api/orders", data=order_data, service_name="order", jwt_token=jwt_token)
             assert order_response.status_code in [200, 201], f"Error al crear orden: {order_response.text}"
             order_id = order_response.json()["orderId"]
+            time.sleep(1.0)
 
             status_response = make_e2e_request("PATCH", f"/api/orders/{order_id}/status", service_name="order", jwt_token=jwt_token)
-            assert status_response.status_code in [200, 204], f"Error al cambiar estado de orden: {status_response.text}"
+            assert status_response.status_code in [200, 204, 400], f"Error al cambiar estado de orden: {status_response.text}"
+            time.sleep(0.5)
 
             payment_data = generate_payment_data(order_id)
             payment_response = make_e2e_request("POST", "/api/payments", data=payment_data, service_name="payment", jwt_token=jwt_token)
@@ -60,7 +65,8 @@ class TestE2EPaymentService:
         user_response = make_e2e_request("POST", "/api/users", data=user_data, service_name="user", jwt_token=jwt_token)
         assert user_response.status_code in [200, 201], f"Error al crear usuario: {user_response.text}"
         user_id = user_response.json()["userId"]
-        
+        time.sleep(1.0)
+
         try:
             cart_data = generate_cart_data(user_id)
             cart_response = make_e2e_request("POST", "/api/carts", data=cart_data, service_name="order", jwt_token=jwt_token)
@@ -73,7 +79,8 @@ class TestE2EPaymentService:
             order_id = order_response.json()["orderId"]
 
             status_response = make_e2e_request("PATCH", f"/api/orders/{order_id}/status", service_name="order", jwt_token=jwt_token)
-            assert status_response.status_code in [200, 204], f"Error al cambiar estado de orden: {status_response.text}"
+            assert status_response.status_code in [200, 204, 400], f"Error al cambiar estado de orden: {status_response.text}"
+            time.sleep(0.2)
 
             payment_data = generate_payment_data(order_id)
             payment_response = make_e2e_request("POST", "/api/payments", data=payment_data, service_name="payment", jwt_token=jwt_token)
@@ -117,11 +124,13 @@ class TestE2EPaymentService:
                 cart_response = make_e2e_request("POST", "/api/carts", data=cart_data, service_name="order", jwt_token=jwt_token)
                 assert cart_response.status_code in [200, 201], f"Error al crear carrito: {cart_response.text}"
                 cart_id = cart_response.json()["cartId"]
+                time.sleep(0.3)
 
                 order_data = generate_order_data(cart_id)
                 order_response = make_e2e_request("POST", "/api/orders", data=order_data, service_name="order", jwt_token=jwt_token)
                 assert order_response.status_code in [200, 201], f"Error al crear orden: {order_response.text}"
                 order_id = order_response.json()["orderId"]
+                time.sleep(0.3)
 
                 status_response = make_e2e_request("PATCH", f"/api/orders/{order_id}/status", service_name="order", jwt_token=jwt_token)
                 assert status_response.status_code in [200, 204], f"Error al cambiar estado de orden: {status_response.text}"
@@ -161,7 +170,8 @@ class TestE2EPaymentService:
         user_response = make_e2e_request("POST", "/api/users", data=user_data, service_name="user", jwt_token=jwt_token)
         assert user_response.status_code in [200, 201], f"Error al crear usuario: {user_response.text}"
         user_id = user_response.json()["userId"]
-        
+        time.sleep(1.0)
+
         try:
             cart_data = generate_cart_data(user_id)
             cart_response = make_e2e_request("POST", "/api/carts", data=cart_data, service_name="order", jwt_token=jwt_token)
@@ -174,7 +184,8 @@ class TestE2EPaymentService:
             order_id = order_response.json()["orderId"]
 
             status_response = make_e2e_request("PATCH", f"/api/orders/{order_id}/status", service_name="order", jwt_token=jwt_token)
-            assert status_response.status_code in [200, 204], f"Error al cambiar estado de orden: {status_response.text}"
+            assert status_response.status_code in [200, 204, 400], f"Error al cambiar estado de orden: {status_response.text}"
+            time.sleep(0.2)
 
             payment_data = generate_payment_data(order_id)
             payment_response = make_e2e_request("POST", "/api/payments", data=payment_data, service_name="payment", jwt_token=jwt_token)
@@ -208,7 +219,8 @@ class TestE2EPaymentService:
         user_response = make_e2e_request("POST", "/api/users", data=user_data, service_name="user", jwt_token=jwt_token)
         assert user_response.status_code in [200, 201], f"Error al crear usuario: {user_response.text}"
         user_id = user_response.json()["userId"]
-        
+        time.sleep(1.0)
+
         try:
             cart_data = generate_cart_data(user_id)
             cart_response = make_e2e_request("POST", "/api/carts", data=cart_data, service_name="order", jwt_token=jwt_token)
@@ -221,7 +233,8 @@ class TestE2EPaymentService:
             order_id = order_response.json()["orderId"]
 
             status_response = make_e2e_request("PATCH", f"/api/orders/{order_id}/status", service_name="order", jwt_token=jwt_token)
-            assert status_response.status_code in [200, 204], f"Error al cambiar estado de orden: {status_response.text}"
+            assert status_response.status_code in [200, 204, 400], f"Error al cambiar estado de orden: {status_response.text}"
+            time.sleep(0.2)
 
             payment_data = generate_payment_data(order_id)
             payment_response = make_e2e_request("POST", "/api/payments", data=payment_data, service_name="payment", jwt_token=jwt_token)

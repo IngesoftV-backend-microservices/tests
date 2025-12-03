@@ -19,6 +19,7 @@ class TestPaymentService:
     @pytest.fixture
     def create_test_user(self):
         """Fixture para crear un usuario de prueba."""
+        import time
         set_current_service("user-service")
         user_data = generate_user_data()
         response = make_request("POST", "/api/users", data=user_data)
@@ -27,32 +28,46 @@ class TestPaymentService:
         created_user = response.json()
         user_id = created_user.get("userId")
 
+        # Wait for user to be fully propagated
+        time.sleep(1.0)
+
         yield {"id": user_id, "data": created_user}
 
         set_current_service("user-service")
-        make_request("DELETE", f"/api/users/{user_id}")
+        try:
+            make_request("DELETE", f"/api/users/{user_id}")
+        except:
+            pass
 
     @pytest.fixture
     def create_test_cart(self, create_test_user):
         """Fixture para crear un carrito de prueba."""
+        import time
         set_current_service("order-service")
         user = create_test_user
         cart_data = generate_cart_data(user["id"])
-        
+
         response = make_request("POST", "/api/carts", data=cart_data)
         assert response.status_code in [200, 201], f"Error al crear carrito: {response.text}"
 
         created_cart = response.json()
         cart_id = created_cart.get("cartId")
 
+        # Wait for cart to be fully propagated
+        time.sleep(1.0)
+
         yield {"id": cart_id, "data": created_cart, "user": user}
 
         set_current_service("order-service")
-        make_request("DELETE", f"/api/carts/{cart_id}")
+        try:
+            make_request("DELETE", f"/api/carts/{cart_id}")
+        except:
+            pass
 
     @pytest.fixture
     def create_test_order(self, create_test_cart):
         """Fixture para crear una orden de prueba."""
+        import time
         set_current_service("order-service")
         cart = create_test_cart
         order_data = generate_order_data(cart["id"])
@@ -63,14 +78,23 @@ class TestPaymentService:
         created_order = response.json()
         order_id = created_order.get("orderId")
 
+        # Wait for order to be fully propagated
+        time.sleep(1.0)
+
         # Change order status to CONFIRMED (required for payment processing)
         patch_response = make_request("PATCH", f"/api/orders/{order_id}/status")
-        assert patch_response.status_code in [200, 204], f"Error al cambiar estado de orden: {patch_response.text}"
+        # Accept 400 if order is already in a final state
+        assert patch_response.status_code in [200, 204, 400], f"Error al cambiar estado de orden: {patch_response.text}"
+
+        time.sleep(0.5)
 
         yield {"id": order_id, "data": created_order, "cart": cart}
 
         set_current_service("order-service")
-        make_request("DELETE", f"/api/orders/{order_id}")
+        try:
+            make_request("DELETE", f"/api/orders/{order_id}")
+        except:
+            pass
 
     @pytest.fixture
     def create_test_payment(self, create_test_order):

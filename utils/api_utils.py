@@ -2,6 +2,7 @@
 Utilidades para hacer peticiones HTTP en los tests.
 """
 import os
+import time
 import requests
 from typing import Dict, Any, Optional
 from utils.helpers import build_integration_url, SERVICE_CONTEXT_PATHS
@@ -102,27 +103,44 @@ def make_request(
     # Headers por defecto
     headers = {"Content-Type": "application/json"}
 
-    # Hacer la petición según el método con timeout
+    # Hacer la petición según el método con timeout y retry logic
     method = method.upper()
-    try:
-        if method == "GET":
-            response = requests.get(full_url, headers=headers, timeout=timeout)
-        elif method == "POST":
-            response = requests.post(full_url, headers=headers, json=data, timeout=timeout)
-        elif method == "PUT":
-            response = requests.put(full_url, headers=headers, json=data, timeout=timeout)
-        elif method == "DELETE":
-            response = requests.delete(full_url, headers=headers, timeout=timeout)
-        elif method == "PATCH":
-            response = requests.patch(full_url, headers=headers, json=data, timeout=timeout)
-        else:
-            raise ValueError(f"Unsupported HTTP method: {method}")
+    max_retries = 5
+    retry_delay = 0.8
 
-        return response
-    except requests.exceptions.Timeout:
-        raise AssertionError(f"Request timeout after {timeout}s: {method} {full_url}")
-    except requests.exceptions.ConnectionError as e:
-        raise AssertionError(f"Connection error to {full_url}: {str(e)}")
+    for attempt in range(max_retries):
+        try:
+            if method == "GET":
+                response = requests.get(full_url, headers=headers, timeout=timeout)
+            elif method == "POST":
+                response = requests.post(full_url, headers=headers, json=data, timeout=timeout)
+            elif method == "PUT":
+                response = requests.put(full_url, headers=headers, json=data, timeout=timeout)
+            elif method == "DELETE":
+                response = requests.delete(full_url, headers=headers, timeout=timeout)
+            elif method == "PATCH":
+                response = requests.patch(full_url, headers=headers, json=data, timeout=timeout)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            # Retry on 404 for dependency creation (eventual consistency)
+            if response.status_code == 404 and attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+
+            return response
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            raise AssertionError(f"Request timeout after {timeout}s: {method} {full_url}")
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            raise AssertionError(f"Connection error to {full_url}: {str(e)}")
+
+    return response
 
 
 def make_e2e_request(
@@ -167,25 +185,42 @@ def make_e2e_request(
     if jwt_token:
         headers["Authorization"] = f"Bearer {jwt_token}"
 
-    # Hacer la petición según el método con timeout
+    # Hacer la petición según el método con timeout y retry logic
     method = method.upper()
-    try:
-        if method == "GET":
-            response = requests.get(full_url, headers=headers, timeout=timeout)
-        elif method == "POST":
-            response = requests.post(full_url, headers=headers, json=data, timeout=timeout)
-        elif method == "PUT":
-            response = requests.put(full_url, headers=headers, json=data, timeout=timeout)
-        elif method == "DELETE":
-            response = requests.delete(full_url, headers=headers, timeout=timeout)
-        elif method == "PATCH":
-            response = requests.patch(full_url, headers=headers, json=data, timeout=timeout)
-        else:
-            raise ValueError(f"Unsupported HTTP method: {method}")
+    max_retries = 5
+    retry_delay = 0.8
 
-        return response
-    except requests.exceptions.Timeout:
-        raise AssertionError(f"E2E Request timeout after {timeout}s: {method} {full_url}")
-    except requests.exceptions.ConnectionError as e:
-        raise AssertionError(f"E2E Connection error to {full_url}: {str(e)}")
+    for attempt in range(max_retries):
+        try:
+            if method == "GET":
+                response = requests.get(full_url, headers=headers, timeout=timeout)
+            elif method == "POST":
+                response = requests.post(full_url, headers=headers, json=data, timeout=timeout)
+            elif method == "PUT":
+                response = requests.put(full_url, headers=headers, json=data, timeout=timeout)
+            elif method == "DELETE":
+                response = requests.delete(full_url, headers=headers, timeout=timeout)
+            elif method == "PATCH":
+                response = requests.patch(full_url, headers=headers, json=data, timeout=timeout)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            # Retry on 404 for dependency creation (eventual consistency)
+            if response.status_code == 404 and attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+
+            return response
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            raise AssertionError(f"E2E Request timeout after {timeout}s: {method} {full_url}")
+        except requests.exceptions.ConnectionError as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            raise AssertionError(f"E2E Connection error to {full_url}: {str(e)}")
+
+    return response
 
